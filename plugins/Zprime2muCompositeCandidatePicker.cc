@@ -98,6 +98,7 @@ private:
   std::pair<bool, float>             back_to_back_cos_angle(const pat::CompositeCandidate&) const;
   std::pair<bool, CachingVertex<5> > vertex_constrained_fit(const pat::CompositeCandidate&) const;
   std::pair<bool, float>             dpt_over_pt(const pat::CompositeCandidate&) const;
+  std::pair<bool, float>             dil_deltaR(const pat::CompositeCandidate&) const;
 
   // If the variable to embed in the methods above is a simple int or
   // float or is going to be embedded wholesale with the generic
@@ -122,6 +123,9 @@ private:
   const bool cut_on_dpt_over_pt;
   const double dpt_over_pt_max;
 
+  const bool cut_on_dil_deltaR;
+  const double dil_deltaR_min;
+
   edm::ESHandle<TransientTrackBuilder> ttkb;
 };
 
@@ -136,7 +140,9 @@ Zprime2muCompositeCandidatePicker::Zprime2muCompositeCandidatePicker(const edm::
     cut_on_vertex_chi2(cfg.existsAs<double>("vertex_chi2_max")),
     vertex_chi2_max(cut_on_vertex_chi2 ? cfg.getParameter<double>("vertex_chi2_max") : 1e99),
     cut_on_dpt_over_pt(cfg.existsAs<double>("dpt_over_pt_max")),
-    dpt_over_pt_max(cut_on_dpt_over_pt ? cfg.getParameter<double>("dpt_over_pt_max") : 1e99)
+    dpt_over_pt_max(cut_on_dpt_over_pt ? cfg.getParameter<double>("dpt_over_pt_max") : 1e99),
+    cut_on_dil_deltaR(cfg.existsAs<double>("dil_deltaR_min")),
+    dil_deltaR_min(cut_on_dil_deltaR ? cfg.getParameter<double>("dil_deltaR_min") : -2)
 {
  consumes<pat::CompositeCandidateCollection>(src); 
  produces<pat::CompositeCandidateCollection>();
@@ -274,6 +280,15 @@ std::pair<bool, float> Zprime2muCompositeCandidatePicker::dpt_over_pt(const pat:
   return std::make_pair(dpt_over_pt_largest < dpt_over_pt_max, dpt_over_pt_largest);
 }
 
+std::pair<bool, float> Zprime2muCompositeCandidatePicker::dil_deltaR(const pat::CompositeCandidate& dil) const {
+
+  double the_deltaR = reco::deltaR( *dil.daughter(0), *dil.daughter(1) );
+
+  //if(!ShutUp)  std::cout << "CustoTnPPairSelector::dil_deltaR[" << dil_deltaR_min << "] : deltaR = " << the_deltaR << ", " << (the_deltaR > dil_deltaR_min) << std::endl;
+
+  return std::make_pair( the_deltaR > dil_deltaR_min , the_deltaR );
+}
+
 void Zprime2muCompositeCandidatePicker::produce(edm::Event& event, const edm::EventSetup& setup) {
   edm::Handle<pat::CompositeCandidateCollection> cands;
   event.getByLabel(src, cands);
@@ -309,12 +324,18 @@ void Zprime2muCompositeCandidatePicker::produce(edm::Event& event, const edm::Ev
     if (cut_on_dpt_over_pt && !dpt_over_pt_largest.first)
       continue;
 
+    // Cut on deltaR
+    std::pair<bool, float> the_deltaR = dil_deltaR(*c);
+    if( cut_on_dil_deltaR && !the_deltaR.first)
+      continue;
+
     // Save the dilepton since it passed the cuts, and store the cut
     // variables and other stuff for use later.
     new_cands->push_back(*c);
     new_cands->back().addUserFloat("cos_angle",   cos_angle.second);
     embed_vertex_constrained_fit(new_cands->back(), vertex.second);
     new_cands->back().addUserFloat("dpt_over_pt", dpt_over_pt_largest.second);
+    new_cands->back().addUserFloat("dil_deltaR", the_deltaR.second);
   }
 
   // Sort candidates so we keep either the ones with higher-pT
